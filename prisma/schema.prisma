@@ -1,0 +1,113 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id        String   @id @default(uuid())
+  username  String   @unique
+  password  String
+  role      Role     @default(EMPLOYEE)
+  createdAt DateTime @default(now())
+
+  hallAssignments HallEmployee[]
+  bookings        Booking[]       @relation("BookingCreatedBy")
+  cancellations   BookingCancel[] @relation("CancelledBy")
+  logs            AuditLog[]
+}
+
+model Hall {
+  id          String   @id @default(uuid())
+  name        String   @unique
+  createdAt   DateTime @default(now())
+
+  employees   HallEmployee[]
+  bookings    Booking[]
+}
+
+model HallEmployee {
+  id        String   @id @default(uuid())
+
+  userId    String
+  hallId    String
+
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  hall      Hall     @relation(fields: [hallId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+
+  @@unique([userId, hallId])
+}
+
+model Booking {
+  id               String   @id @default(uuid())
+
+  hallId           String
+  hall             Hall     @relation(fields: [hallId], references: [id], onDelete: Cascade)
+
+  bookingDate      DateTime
+
+  groomName        String
+  brideName        String
+
+  customerName     String
+  phone            String?
+
+  depositAmount    Float
+  totalAmount      Float
+
+  notes            String?
+
+  status           BookingStatus @default(ACTIVE)
+
+  createdAt        DateTime @default(now())
+
+  createdById      String
+  createdBy        User @relation("BookingCreatedBy", fields: [createdById], references: [id])
+
+  cancellation     BookingCancel?
+
+}
+
+model BookingCancel {
+  id              String   @id @default(uuid())
+
+  bookingId       String   @unique
+  booking         Booking  @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+
+  refundAmount    Float
+
+  reason          String
+
+  cancelledAt     DateTime @default(now())
+
+  cancelledById   String
+  cancelledBy     User @relation("CancelledBy", fields: [cancelledById], references: [id])
+}
+
+model AuditLog {
+  id          String   @id @default(uuid())
+
+  action      String
+
+  description String?
+
+  createdAt   DateTime @default(now())
+
+  userId      String
+  user        User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+enum Role {
+  SUPER_ADMIN
+  EMPLOYEE
+}
+
+enum BookingStatus {
+  ACTIVE
+  CANCELLED
+}
