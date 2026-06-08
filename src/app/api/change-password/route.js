@@ -3,25 +3,46 @@ import { NextResponse } from "next/server";
 import { verifyToken } from "@/lib/jwt";
 import bcrypt from "bcrypt";
 
+const MIN_PASSWORD_LENGTH = 8;
+
 export async function PUT(req) {
   try {
     const token = req.cookies.get("token")?.value;
 
     if (!token) {
-      return NextResponse.json({ message: "غير مصرح لك" }, { status: 403 });
+      return NextResponse.json({ message: "غير مصرح لك" }, { status: 401 });
     }
 
     const decoded = verifyToken(token);
 
     if (!decoded?.id) {
-      return NextResponse.json({ message: "غير مصرح لك" }, { status: 403 });
+      return NextResponse.json({ message: "غير مصرح لك" }, { status: 401 });
     }
 
-    const { oldPassword, newPassword } = await req.json();
+    const body = await req.json();
+    const { oldPassword, newPassword } = body;
 
     if (!oldPassword || !newPassword) {
       return NextResponse.json(
         { message: "البيانات غير مكتملة" },
+        { status: 400 },
+      );
+    }
+
+    // ✅ validation على طول الباسورد الجديد
+    if (newPassword.length < MIN_PASSWORD_LENGTH) {
+      return NextResponse.json(
+        {
+          message: `كلمة المرور لازم تكون ${MIN_PASSWORD_LENGTH} حروف على الأقل`,
+        },
+        { status: 400 },
+      );
+    }
+
+    // ✅ منع تغيير الباسورد لنفس القيمة
+    if (oldPassword === newPassword) {
+      return NextResponse.json(
+        { message: "كلمة المرور الجديدة لازم تكون مختلفة عن القديمة" },
         { status: 400 },
       );
     }
@@ -46,18 +67,16 @@ export async function PUT(req) {
       );
     }
 
-    const hashedPassword = await bcrypt.hash(newPassword, 10);
+    const hashedPassword = await bcrypt.hash(newPassword, 12);
 
     await prisma.user.update({
       where: { id: user.id },
       data: { password: hashedPassword },
     });
 
-    return NextResponse.json({
-      message: "تم تغيير كلمة المرور بنجاح",
-    });
+    return NextResponse.json({ message: "تم تغيير كلمة المرور بنجاح" });
   } catch (error) {
-    console.error(error);
+    console.error("PUT /api/change-password ERROR:", error);
     return NextResponse.json(
       { message: "حدث خطأ في السيرفر" },
       { status: 500 },

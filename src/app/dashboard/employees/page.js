@@ -1,8 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { useEffect as useRedirectEffect } from "react";
-import { useRouter as useRedirectRouter } from "next/navigation";
+import { useRouter } from "next/navigation";
 import {
   Table,
   Button,
@@ -14,7 +13,9 @@ import {
   Checkbox,
   Spin,
   Breadcrumb,
+  Select,
 } from "antd";
+import { DownOutlined, UpOutlined } from "@ant-design/icons";
 
 export default function EmployeesPage() {
   // =============================
@@ -24,6 +25,7 @@ export default function EmployeesPage() {
   const [users, setUsers] = useState([]);
   const [currentUser, setCurrentUser] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [authorized, setAuthorized] = useState(false);
 
   // modals
   const [openAdd, setOpenAdd] = useState(false);
@@ -45,7 +47,6 @@ export default function EmployeesPage() {
   const [halls, setHalls] = useState([]);
   const [selectedHalls, setSelectedHalls] = useState([]);
 
-  // استشعار حجم الشاشة — على التاب والموبايل نخفي عمود العمليات وندخله في expandable
   const [isMobile, setIsMobile] = useState(false);
 
   // forms
@@ -55,18 +56,19 @@ export default function EmployeesPage() {
 
   const isSuperAdmin = currentUser?.role === "SUPER_ADMIN";
 
+  // ✅ import واحد بس بدل الـ import المكرر اللي كان موجود
+  const router = useRouter();
+
   // =============================
-  // حماية الصفحة — الموظف العادي مينفعش يدخلها
+  // حماية الصفحة — client-side guard
+  // (الحماية الحقيقية في middleware.ts والـ API)
   // =============================
 
-  const protectRouter = useRedirectRouter();
-
-  useRedirectEffect(() => {
-    // بعد ما البيانات تتحمل، لو مش super admin → ارجع للقاعات
+  useEffect(() => {
     if (currentUser && currentUser.role !== "SUPER_ADMIN") {
-      protectRouter.replace("/dashboard/halls");
+      router.replace("/dashboard/halls");
     }
-  }, [currentUser]);
+  }, [currentUser, router]);
 
   // =============================
   // استشعار حجم الشاشة
@@ -83,41 +85,73 @@ export default function EmployeesPage() {
   // تحميل البيانات الأولي
   // =============================
 
-  useEffect(() => {
-    loadInitialData();
-  }, []);
-
   async function loadInitialData() {
     try {
       setLoading(true);
 
-      const [meRes, usersRes] = await Promise.all([
-        fetch("/api/me"),
-        fetch("/api/users"),
-      ]);
+      const meRes = await fetch("/api/me");
 
-      const [me, usersData] = await Promise.all([
-        meRes.json(),
-        usersRes.json(),
-      ]);
+      // ✅ لو الـ API رجع 401 أو 403 — مش بس null
+      if (!meRes.ok) {
+        router.replace("/login");
+        return;
+      }
+
+      const me = await meRes.json();
+
+      // ✅ تحقق إن الداتا موجودة فعلاً
+      if (!me || !me.id) {
+        router.replace("/login");
+        return;
+      }
 
       setCurrentUser(me);
+
+      if (me.role !== "SUPER_ADMIN") {
+        router.replace("/dashboard/halls");
+        return;
+      }
+
+      setAuthorized(true);
+
+      const usersRes = await fetch("/api/users");
+
+      if (!usersRes.ok) {
+        message.error("حدث خطأ أثناء تحميل قائمة الموظفين");
+        return;
+      }
+
+      const usersData = await usersRes.json();
       setUsers(usersData);
     } catch {
       message.error("حدث خطأ أثناء تحميل البيانات");
+      router.replace("/login");
     } finally {
       setLoading(false);
     }
   }
 
+  useEffect(() => {
+    loadInitialData();
+  }, []);
+
   // =============================
   // إعادة تحميل قائمة الموظفين
+  // ✅ أضفنا error handling
   // =============================
 
   const fetchUsers = async () => {
-    const res = await fetch("/api/users");
-    const data = await res.json();
-    setUsers(data);
+    try {
+      const res = await fetch("/api/users");
+      if (!res.ok) {
+        message.error("حدث خطأ أثناء تحديث القائمة");
+        return;
+      }
+      const data = await res.json();
+      setUsers(data);
+    } catch {
+      message.error("حدث خطأ أثناء تحديث القائمة");
+    }
   };
 
   // =============================
@@ -125,13 +159,23 @@ export default function EmployeesPage() {
   // =============================
 
   const handleAdd = async (values) => {
+    // ✅ التحقق من تطابق كلمتي المرور على الفرونت
+    if (values.password !== values.confirmPassword) {
+      message.error("كلمتا المرور غير متطابقتين");
+      return;
+    }
+
     try {
       setAddLoading(true);
 
       const res = await fetch("/api/users", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(values),
+        body: JSON.stringify({
+          username: values.username,
+          password: values.password,
+          role: values.role,
+        }),
       });
 
       const data = await res.json();
@@ -145,6 +189,8 @@ export default function EmployeesPage() {
       setOpenAdd(false);
       formAdd.resetFields();
       fetchUsers();
+    } catch {
+      message.error("حدث خطأ في الاتصال بالسيرفر");
     } finally {
       setAddLoading(false);
     }
@@ -162,16 +208,20 @@ export default function EmployeesPage() {
       cancelText: "إلغاء",
       okType: "danger",
       onOk: async () => {
-        const res = await fetch(`/api/users/${id}`, { method: "DELETE" });
-        const data = await res.json();
+        try {
+          const res = await fetch(`/api/users/${id}`, { method: "DELETE" });
+          const data = await res.json();
 
-        if (!res.ok) {
-          message.error(data?.message || "حدث خطأ");
-          return;
+          if (!res.ok) {
+            message.error(data?.message || "حدث خطأ");
+            return;
+          }
+
+          message.success("تم الحذف بنجاح");
+          fetchUsers();
+        } catch {
+          message.error("حدث خطأ في الاتصال بالسيرفر");
         }
-
-        message.success("تم الحذف بنجاح");
-        fetchUsers();
       },
     });
   };
@@ -197,7 +247,10 @@ export default function EmployeesPage() {
       const res = await fetch(`/api/users/${selectedUser.id}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(values),
+        body: JSON.stringify({
+          username: values.username,
+          password: values.password,
+        }),
       });
 
       const data = await res.json();
@@ -211,6 +264,8 @@ export default function EmployeesPage() {
       setOpenEdit(false);
       formEdit.resetFields();
       fetchUsers();
+    } catch {
+      message.error("حدث خطأ في الاتصال بالسيرفر");
     } finally {
       setEditLoading(false);
     }
@@ -221,13 +276,22 @@ export default function EmployeesPage() {
   // =============================
 
   const handleChangePassword = async (values) => {
+    // ✅ التحقق من تطابق كلمتي المرور الجديدة
+    if (values.newPassword !== values.confirmNewPassword) {
+      message.error("كلمتا المرور الجديدة غير متطابقتين");
+      return;
+    }
+
     try {
       setChangePassLoading(true);
 
       const res = await fetch("/api/change-password", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(values),
+        body: JSON.stringify({
+          oldPassword: values.oldPassword,
+          newPassword: values.newPassword,
+        }),
       });
 
       const data = await res.json();
@@ -240,6 +304,8 @@ export default function EmployeesPage() {
       message.success("تم تغيير كلمة المرور بنجاح");
       setOpenChangePass(false);
       formPassword.resetFields();
+    } catch {
+      message.error("حدث خطأ في الاتصال بالسيرفر");
     } finally {
       setChangePassLoading(false);
     }
@@ -260,6 +326,12 @@ export default function EmployeesPage() {
         fetch(`/api/users/${user.id}/assign-halls`),
       ]);
 
+      if (!hallsRes.ok || !assignRes.ok) {
+        message.error("حدث خطأ أثناء تحميل القاعات");
+        setOpenAssign(false);
+        return;
+      }
+
       const [hallsData, assigned] = await Promise.all([
         hallsRes.json(),
         assignRes.json(),
@@ -269,6 +341,7 @@ export default function EmployeesPage() {
       setSelectedHalls(assigned);
     } catch {
       message.error("حدث خطأ أثناء تحميل القاعات");
+      setOpenAssign(false);
     } finally {
       setAssignModalLoading(false);
     }
@@ -297,13 +370,15 @@ export default function EmployeesPage() {
 
       message.success("تم التعيين بنجاح");
       setOpenAssign(false);
+    } catch {
+      message.error("حدث خطأ في الاتصال بالسيرفر");
     } finally {
       setAssignLoading(false);
     }
   };
 
   // =============================
-  // أزرار العمليات — مشتركة بين عمود الجدول والـ expandable
+  // أزرار العمليات
   // =============================
 
   const renderActions = (record) => {
@@ -329,8 +404,6 @@ export default function EmployeesPage() {
 
   // =============================
   // أعمدة الجدول
-  // عمود العمليات يظهر بس على الشاشات الكبيرة (>= 768px)
-  // على الموبايل/التاب يتحول للـ expandable
   // =============================
 
   const columns = [
@@ -341,7 +414,11 @@ export default function EmployeesPage() {
     {
       title: "الدور",
       dataIndex: "role",
-      render: (role) => (role === "SUPER_ADMIN" ? "مدير" : "موظف"),
+      render: (role) => {
+        if (role === "SUPER_ADMIN") return "سوبر أدمن";
+        if (role === "ADMIN") return "أدمن";
+        return "موظف";
+      },
     },
     ...(!isMobile
       ? [
@@ -353,7 +430,6 @@ export default function EmployeesPage() {
       : []),
   ];
 
-  // السوبر أدمن يكون أول واحد في القائمة دايماً
   const sortedUsers = [...users].sort((a, b) => {
     if (a.role === "SUPER_ADMIN" && b.role !== "SUPER_ADMIN") return -1;
     if (a.role !== "SUPER_ADMIN" && b.role === "SUPER_ADMIN") return 1;
@@ -364,25 +440,34 @@ export default function EmployeesPage() {
   // الرندر
   // =============================
 
+  if (loading) {
+    return (
+      <div style={{ display: "flex", justifyContent: "center", padding: 100 }}>
+        <Spin size="large" />
+      </div>
+    );
+  }
+
+  if (!authorized) {
+    return null;
+  }
+
   return (
     <div>
       <Breadcrumb
         style={{ marginBottom: 20 }}
         items={[{ title: "الموظفين" }]}
       />
+
       {isSuperAdmin && (
         <div className="wrapperHalls">
           <Space style={{ marginBottom: 16 }}>
-            {isSuperAdmin && (
-              <Button className="butDef" onClick={() => setOpenAdd(true)}>
-                إضافة موظف
-              </Button>
-            )}
-            {isSuperAdmin && (
-              <Button onClick={() => setOpenChangePass(true)}>
-                تغيير كلمة المرور
-              </Button>
-            )}
+            <Button className="butDef" onClick={() => setOpenAdd(true)}>
+              إضافة موظف
+            </Button>
+            <Button onClick={() => setOpenChangePass(true)}>
+              تغيير كلمة المرور
+            </Button>
           </Space>
 
           <Table
@@ -390,7 +475,6 @@ export default function EmployeesPage() {
             dataSource={sortedUsers}
             rowKey="id"
             loading={loading}
-            // على الموبايل/التاب: العمليات تظهر جوه expandable row
             expandable={
               isMobile && isSuperAdmin
                 ? {
@@ -400,7 +484,6 @@ export default function EmployeesPage() {
                           {renderActions(record)}
                         </div>
                       ) : null,
-                    // إخفاء زرار الـ expand للسوبر أدمن لأنه مفيش عمليات ليه
                     rowExpandable: (record) =>
                       isSuperAdmin && record.role !== "SUPER_ADMIN",
                     expandIcon: ({ expanded, onExpand, record }) =>
@@ -416,7 +499,7 @@ export default function EmployeesPage() {
                             color: "#1677ff",
                           }}
                         >
-                          {expanded ? "▲" : "▼"}
+                          {expanded ? <UpOutlined /> : <DownOutlined />}
                         </button>
                       ) : null,
                   }
@@ -440,14 +523,38 @@ export default function EmployeesPage() {
                 name="username"
                 rules={[{ required: true, message: "أدخل اسم المستخدم" }]}
               >
-                <Input />
+                <Input autoComplete="off" />
               </Form.Item>
               <Form.Item
                 label="كلمة المرور"
                 name="password"
-                rules={[{ required: true, message: "أدخل كلمة المرور" }]}
+                rules={[
+                  { required: true, message: "أدخل كلمة المرور" },
+                  { min: 8, message: "كلمة المرور لازم تكون 8 حروف على الأقل" },
+                ]}
               >
-                <Input.Password />
+                <Input.Password autoComplete="new-password" />
+              </Form.Item>
+              {/* ✅ حقل تأكيد كلمة المرور */}
+              <Form.Item
+                label="تأكيد كلمة المرور"
+                name="confirmPassword"
+                rules={[{ required: true, message: "أكد كلمة المرور" }]}
+              >
+                <Input.Password autoComplete="new-password" />
+              </Form.Item>
+              <Form.Item
+                label="نوع الحساب"
+                name="role"
+                initialValue="EMPLOYEE"
+                rules={[{ required: true, message: "اختر نوع الحساب" }]}
+              >
+                <Select
+                  options={[
+                    { label: "أدمن", value: "ADMIN" },
+                    { label: "موظف", value: "EMPLOYEE" },
+                  ]}
+                />
               </Form.Item>
               <Button
                 className="butDef"
@@ -476,10 +583,19 @@ export default function EmployeesPage() {
                 name="username"
                 rules={[{ required: true, message: "أدخل اسم المستخدم" }]}
               >
-                <Input />
+                <Input autoComplete="off" />
               </Form.Item>
-              <Form.Item label="كلمة المرور الجديدة" name="password">
-                <Input.Password placeholder="اتركها فارغة لو مش عايز تغيرها" />
+              <Form.Item
+                label="كلمة المرور الجديدة"
+                name="password"
+                rules={[
+                  { min: 8, message: "كلمة المرور لازم تكون 8 حروف على الأقل" },
+                ]}
+              >
+                <Input.Password
+                  placeholder="اتركها فارغة لو مش عايز تغيرها"
+                  autoComplete="new-password"
+                />
               </Form.Item>
               <Button
                 className="butDef"
@@ -508,22 +624,31 @@ export default function EmployeesPage() {
               onFinish={handleChangePassword}
             >
               <Form.Item
-                label="كلمة المرور القديمة"
+                label="كلمة المرور الحالية"
                 name="oldPassword"
                 rules={[
-                  { required: true, message: "أدخل كلمة المرور القديمة" },
+                  { required: true, message: "أدخل كلمة المرور الحالية" },
                 ]}
               >
-                <Input.Password />
+                <Input.Password autoComplete="current-password" />
               </Form.Item>
               <Form.Item
                 label="كلمة المرور الجديدة"
                 name="newPassword"
                 rules={[
                   { required: true, message: "أدخل كلمة المرور الجديدة" },
+                  { min: 8, message: "كلمة المرور لازم تكون 8 حروف على الأقل" },
                 ]}
               >
-                <Input.Password />
+                <Input.Password autoComplete="new-password" />
+              </Form.Item>
+              {/* ✅ حقل تأكيد كلمة المرور الجديدة */}
+              <Form.Item
+                label="تأكيد كلمة المرور الجديدة"
+                name="confirmNewPassword"
+                rules={[{ required: true, message: "أكد كلمة المرور الجديدة" }]}
+              >
+                <Input.Password autoComplete="new-password" />
               </Form.Item>
               <Button
                 className="butDef"

@@ -6,6 +6,10 @@ import {
   HomeOutlined,
   LogoutOutlined,
   MenuOutlined,
+  CalendarOutlined,
+  CloseCircleOutlined,
+  DashboardOutlined,
+  FundOutlined,
 } from "@ant-design/icons";
 import { useRouter, usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
@@ -17,11 +21,12 @@ const TABLET_BREAKPOINT = 992;
 
 export default function DashboardLayout({ children }) {
   const router = useRouter();
-  const pathname = usePathname(); // المسار الحالي عشان نعرف أي item محدد
+  const pathname = usePathname();
 
   const [user, setUser] = useState(null);
   const [collapsed, setCollapsed] = useState(false);
   const [drawerOpen, setDrawerOpen] = useState(false);
+  const [logoutLoading, setLogoutLoading] = useState(false);
   const [isTablet, setIsTablet] = useState(false);
 
   // =============================
@@ -41,7 +46,7 @@ export default function DashboardLayout({ children }) {
 
   useEffect(() => {
     fetch("/api/me")
-      .then((res) => res.json())
+      .then((res) => (res.ok ? res.json() : null))
       .then((data) => setUser(data));
   }, []);
 
@@ -50,8 +55,17 @@ export default function DashboardLayout({ children }) {
   // =============================
 
   const handleLogout = async () => {
-    await fetch("/api/logout", { method: "POST" });
-    router.push("/login");
+    try {
+      setLogoutLoading(true);
+
+      await fetch("/api/logout", {
+        method: "POST",
+      });
+
+      router.push("/login");
+    } finally {
+      setLogoutLoading(false);
+    }
   };
 
   // =============================
@@ -59,16 +73,37 @@ export default function DashboardLayout({ children }) {
   // =============================
 
   const getSelectedKey = () => {
+    if (pathname === "/dashboard") return "dashboard";
     if (pathname.startsWith("/dashboard/employees")) return "employees";
+    if (pathname.startsWith("/dashboard/booking-requests"))
+      return "booking-requests";
+    if (pathname.startsWith("/dashboard/cancel-requests"))
+      return "cancel-requests";
     if (pathname.startsWith("/dashboard/halls")) return "halls";
     return "halls";
   };
 
   // =============================
-  // الـ menu items — مشتركة بين السايدبار والدراور
+  // الـ menu items
   // =============================
 
   const menuItems = [
+    // الرئيسية — بس للسوبر أدمن
+    ...(user?.role === "SUPER_ADMIN"
+      ? [
+          {
+            key: "dashboard",
+            icon: <FundOutlined />,
+            label: "الرئيسية",
+            onClick: () => {
+              router.push("/dashboard");
+              setDrawerOpen(false);
+            },
+          },
+        ]
+      : []),
+
+    // القاعات — للكل
     {
       key: "halls",
       icon: <HomeOutlined />,
@@ -78,7 +113,8 @@ export default function DashboardLayout({ children }) {
         setDrawerOpen(false);
       },
     },
-    // صفحة الموظفين تظهر بس للسوبر أدمن
+
+    // الموظفين — بس للسوبر أدمن
     ...(user?.role === "SUPER_ADMIN"
       ? [
           {
@@ -87,6 +123,36 @@ export default function DashboardLayout({ children }) {
             label: "الموظفين",
             onClick: () => {
               router.push("/dashboard/employees");
+              setDrawerOpen(false);
+            },
+          },
+        ]
+      : []),
+
+    // ✅ طلبات الحجز — بس للسوبر أدمن
+    ...(user?.role === "SUPER_ADMIN"
+      ? [
+          {
+            key: "booking-requests",
+            icon: <CalendarOutlined />,
+            label: "طلبات الحجز",
+            onClick: () => {
+              router.push("/dashboard/booking-requests");
+              setDrawerOpen(false);
+            },
+          },
+        ]
+      : []),
+
+    // ✅ طلبات الإلغاء — بس للسوبر أدمن
+    ...(user?.role === "SUPER_ADMIN"
+      ? [
+          {
+            key: "cancel-requests",
+            icon: <CloseCircleOutlined />,
+            label: "طلبات الإلغاء",
+            onClick: () => {
+              router.push("/dashboard/cancel-requests");
               setDrawerOpen(false);
             },
           },
@@ -113,15 +179,27 @@ export default function DashboardLayout({ children }) {
               display: "flex",
               alignItems: "center",
               justifyContent: "center",
+              gap: 8,
               color: "#fff",
-              fontWeight: "bold",
               overflow: "hidden",
               whiteSpace: "nowrap",
-              fontSize: collapsed ? 0 : 16,
-              transition: "font-size 0.2s",
             }}
           >
-            {!collapsed && "لوحة التحكم"}
+            <DashboardOutlined
+              style={{
+                fontSize: 20,
+              }}
+            />
+
+            {!collapsed && (
+              <span
+                style={{
+                  fontSize: 16,
+                }}
+              >
+                لوحة التحكم
+              </span>
+            )}
           </div>
 
           <Menu
@@ -193,7 +271,13 @@ export default function DashboardLayout({ children }) {
             <Text>{user ? `مرحباً، ${user.username}` : "جاري التحميل..."}</Text>
           </div>
 
-          <Button danger icon={<LogoutOutlined />} onClick={handleLogout}>
+          <Button
+            danger
+            icon={<LogoutOutlined />}
+            onClick={handleLogout}
+            loading={logoutLoading}
+            disabled={logoutLoading}
+          >
             تسجيل الخروج
           </Button>
         </Header>

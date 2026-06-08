@@ -22,7 +22,8 @@ body {
 .ant-typography , 
 .ant-message , 
 .ant-modal-confirm-paragraph , 
-.ant-btn{
+.ant-btn , 
+.ant-picker-month-btn{
   font-family: var(--default-font--);
 }
 
@@ -195,11 +196,10 @@ table tr td{
 }
 
 .wrapperHalls .wrapperBut button{
-padding: 2px 8px;
-font-size: 12px;
-height: auto;
+  padding: 2px 8px;
+  font-size: 12px;
+  height: auto;
 }
-
 
 button{
   min-height: 30px;
@@ -215,3 +215,26 @@ button.ant-table-row-expand-icon{
   -ms-border-radius: 50% !important;
   -o-border-radius: 50% !important;
 }
+
+.ant-picker{
+  height: 38px;
+}
+input::placeholder{
+  font-size: 12px;
+}
+
+
+/* أيام الأسبوع */
+@media(max-width:880px){
+.ant-picker-content thead th {
+  font-size: 12px !important;
+  padding: 0px !important;
+}
+.ant-picker-date-panel{
+  width: 320px !important;
+}
+.ant-picker-dropdown .ant-picker-date-panel .ant-picker-body {
+padding: 4px !important;
+}
+}
+

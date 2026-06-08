@@ -5,6 +5,8 @@ import { NextResponse } from "next/server";
 import { verifyToken } from "@/lib/jwt";
 import bcrypt from "bcrypt";
 
+const MIN_PASSWORD_LENGTH = 8;
+
 // ===============================
 // 🗑️ حذف مستخدم
 // ===============================
@@ -20,13 +22,21 @@ export async function DELETE(req, { params }) {
     const token = req.cookies.get("token")?.value;
 
     if (!token) {
-      return NextResponse.json({ message: "غير مصرح لك" }, { status: 403 });
+      return NextResponse.json({ message: "غير مصرح لك" }, { status: 401 });
     }
 
     const decoded = verifyToken(token);
 
     if (!decoded || decoded.role !== "SUPER_ADMIN") {
       return NextResponse.json({ message: "غير مصرح لك" }, { status: 403 });
+    }
+
+    // منع السوبر أدمن من حذف نفسه
+    if (decoded.id === userId) {
+      return NextResponse.json(
+        { message: "لا يمكنك حذف حسابك الخاص" },
+        { status: 400 },
+      );
     }
 
     const user = await prisma.user.findUnique({
@@ -51,11 +61,9 @@ export async function DELETE(req, { params }) {
       where: { id: userId },
     });
 
-    return NextResponse.json({
-      message: "تم الحذف بنجاح",
-    });
+    return NextResponse.json({ message: "تم الحذف بنجاح" });
   } catch (error) {
-    console.error("DELETE ERROR:", error);
+    console.error("DELETE /api/users/[id] ERROR:", error);
     return NextResponse.json(
       { message: "حدث خطأ في السيرفر" },
       { status: 500 },
@@ -78,7 +86,7 @@ export async function PUT(req, { params }) {
     const token = req.cookies.get("token")?.value;
 
     if (!token) {
-      return NextResponse.json({ message: "غير مصرح لك" }, { status: 403 });
+      return NextResponse.json({ message: "غير مصرح لك" }, { status: 401 });
     }
 
     const decoded = verifyToken(token);
@@ -87,7 +95,31 @@ export async function PUT(req, { params }) {
       return NextResponse.json({ message: "غير مصرح لك" }, { status: 403 });
     }
 
-    const { username, password } = await req.json();
+    const body = await req.json();
+    const { username, password } = body;
+
+    // ── Validation ──
+    if (!username || typeof username !== "string" || username.trim() === "") {
+      return NextResponse.json(
+        { message: "اسم المستخدم مطلوب" },
+        { status: 400 },
+      );
+    }
+
+    if (
+      password &&
+      password.trim() !== "" &&
+      password.length < MIN_PASSWORD_LENGTH
+    ) {
+      return NextResponse.json(
+        {
+          message: `كلمة المرور لازم تكون ${MIN_PASSWORD_LENGTH} حروف على الأقل`,
+        },
+        { status: 400 },
+      );
+    }
+
+    const sanitizedUsername = username.trim();
 
     const existingUser = await prisma.user.findUnique({
       where: { id: userId },
@@ -107,11 +139,23 @@ export async function PUT(req, { params }) {
       );
     }
 
-    let updatedData = { username };
+    // التحقق إن الاسم الجديد مش موجود عند حد تاني
+    if (sanitizedUsername !== existingUser.username) {
+      const taken = await prisma.user.findUnique({
+        where: { username: sanitizedUsername },
+      });
+      if (taken) {
+        return NextResponse.json(
+          { message: "اسم المستخدم موجود بالفعل" },
+          { status: 400 },
+        );
+      }
+    }
+
+    const updatedData = { username: sanitizedUsername };
 
     if (password && password.trim() !== "") {
-      const hashedPassword = await bcrypt.hash(password, 10);
-      updatedData.password = hashedPassword;
+      updatedData.password = await bcrypt.hash(password, 12);
     }
 
     await prisma.user.update({
@@ -119,11 +163,9 @@ export async function PUT(req, { params }) {
       data: updatedData,
     });
 
-    return NextResponse.json({
-      message: "تم التعديل بنجاح",
-    });
+    return NextResponse.json({ message: "تم التعديل بنجاح" });
   } catch (error) {
-    console.error("PUT ERROR:", error);
+    console.error("PUT /api/users/[id] ERROR:", error);
     return NextResponse.json(
       { message: "حدث خطأ في السيرفر" },
       { status: 500 },

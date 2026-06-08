@@ -28,8 +28,13 @@ export default function LoginPage() {
       }
 
       message.success("تم تسجيل الدخول بنجاح");
-      // بعد اللوجين روح على القاعات مباشرة
-      router.push("/dashboard/halls");
+
+      // ✅ الـ redirect بناءً على الـ role اللي رجع من الـ API
+      if (data.role === "SUPER_ADMIN") {
+        router.push("/dashboard");
+      } else {
+        router.push("/dashboard/halls");
+      }
     } catch {
       message.error("حدث خطأ غير متوقع");
     } finally {

@@ -108,6 +108,19 @@ export async function GET(req, { params }) {
             where: {
               status: "ACTIVE",
             },
+            include: {
+              cancelRequests: {
+                where: {
+                  status: "PENDING",
+                },
+              },
+            },
+          },
+
+          bookingRequests: {
+            where: {
+              status: "PENDING",
+            },
           },
         },
       });
@@ -126,6 +139,19 @@ export async function GET(req, { params }) {
           bookings: {
             where: {
               status: "ACTIVE",
+            },
+            include: {
+              cancelRequests: {
+                where: {
+                  status: "PENDING",
+                },
+              },
+            },
+          },
+
+          bookingRequests: {
+            where: {
+              status: "PENDING",
             },
           },
         },

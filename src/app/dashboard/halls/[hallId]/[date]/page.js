@@ -26,6 +26,8 @@ const { TextArea } = Input;
 export default function BookingDayPage() {
   const params = useParams();
 
+  const [user, setUser] = useState(null);
+
   // كل الحجوزات لهذا اليوم مرتبة تصاعديًا
   const [allBookings, setAllBookings] = useState([]);
   const [hall, setHall] = useState(null);
@@ -51,20 +53,32 @@ export default function BookingDayPage() {
     try {
       setLoading(true);
 
-      const [hallRes, bookingsRes] = await Promise.all([
+      const [hallRes, bookingsRes, meRes] = await Promise.all([
         fetch(`/api/halls/${params.hallId}`),
+
         fetch("/api/bookings/history-by-date", {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ hallId: params.hallId, date: params.date }),
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            hallId: params.hallId,
+            date: params.date,
+          }),
         }),
+
+        fetch("/api/me"),
       ]);
 
       const hallData = await hallRes.json();
       const bookingsData = await bookingsRes.json();
+      const meData = await meRes.json();
 
       setHall(hallData);
+
       setAllBookings(Array.isArray(bookingsData) ? bookingsData : []);
+
+      setUser(meData);
     } catch {
       message.error("حدث خطأ أثناء التحميل");
     } finally {
@@ -80,9 +94,17 @@ export default function BookingDayPage() {
     try {
       setSaveLoading(true);
 
-      const res = await fetch("/api/bookings", {
+      const meRes = await fetch("/api/me");
+      const me = await meRes.json();
+
+      const apiUrl =
+        me.role === "EMPLOYEE" ? "/api/booking-requests" : "/api/bookings";
+
+      const res = await fetch(apiUrl, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+        },
         body: JSON.stringify({
           ...values,
           hallId: params.hallId,
@@ -96,8 +118,13 @@ export default function BookingDayPage() {
         message.error(data.message);
         return;
       }
+      console.log("ROLE =", me.role);
+      if (me.role === "EMPLOYEE") {
+        message.success("تم إرسال طلب الحجز للإدارة للمراجعة");
+      } else {
+        message.success("تم تسجيل الحجز بنجاح");
+      }
 
-      message.success("تم تسجيل الحجز بنجاح");
       setOpenBooking(false);
       form.resetFields();
       loadPage();
@@ -114,23 +141,56 @@ export default function BookingDayPage() {
     try {
       setCancelLoading(true);
 
-      const res = await fetch(`/api/bookings/cancel/${activeBooking.id}`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(values),
-      });
+      if (user?.role === "EMPLOYEE") {
+        const res = await fetch("/api/cancel-requests", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            bookingId: activeBooking.id,
 
-      const data = await res.json();
+            refundAmount: values.refundAmount,
 
-      if (!res.ok) {
-        message.error(data.message);
-        return;
+            reason: values.reason,
+          }),
+        });
+
+        const data = await res.json();
+
+        if (!res.ok) {
+          message.error(data.message);
+          return;
+        }
+
+        message.success("تم إرسال طلب الإلغاء للإدارة للمراجعة");
+      } else {
+        const res = await fetch(`/api/bookings/cancel/${activeBooking.id}`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify(values),
+        });
+
+        const data = await res.json();
+
+        if (!res.ok) {
+          message.error(data.message);
+          return;
+        }
+
+        message.success("تم إلغاء الحجز");
       }
 
-      message.success("تم إلغاء الحجز");
       setOpenCancel(false);
       cancelForm.resetFields();
+
       loadPage();
+    } catch (error) {
+      console.error(error);
+
+      message.error("حدث خطأ أثناء تنفيذ العملية");
     } finally {
       setCancelLoading(false);
     }
@@ -205,7 +265,7 @@ export default function BookingDayPage() {
                 icon={<PlusOutlined />}
                 onClick={() => setOpenBooking(true)}
               >
-                إضافة حجز
+                {user?.role === "EMPLOYEE" ? "طلب حجز" : "إضافة حجز"}
               </Button>
             </Space>
           </Card>
@@ -225,7 +285,9 @@ export default function BookingDayPage() {
               {/* زر الإلغاء لو نشط */}
               {activeBooking && (
                 <Button danger onClick={() => setOpenCancel(true)}>
-                  إلغاء الحجز
+                  {user?.role === "EMPLOYEE"
+                    ? "طلب إلغاء الحجز"
+                    : "إلغاء الحجز"}
                 </Button>
               )}
 
@@ -328,7 +390,9 @@ export default function BookingDayPage() {
               {/* زر إعادة الحجز لو ملغي */}
               {!activeBooking && (
                 <Button type="primary" onClick={() => setOpenBooking(true)}>
-                  إعادة الحجز
+                  {user?.role === "EMPLOYEE"
+                    ? "طلب إعادة الحجز"
+                    : "إعادة الحجز"}
                 </Button>
               )}
             </Space>
@@ -337,7 +401,7 @@ export default function BookingDayPage() {
 
         {/* ===== Modal: إضافة / إعادة حجز ===== */}
         <Modal
-          title="إضافة حجز"
+          title={user?.role === "EMPLOYEE" ? "طلب   إضافة حجز" : " إضافة حجز"}
           open={openBooking}
           footer={null}
           onCancel={() => setOpenBooking(false)}
@@ -448,14 +512,16 @@ export default function BookingDayPage() {
               htmlType="submit"
               loading={saveLoading}
             >
-              حفظ الحجز
+              {user?.role === "EMPLOYEE" ? "طلب   حفظ الحجز" : " حفظ الحجز"}
             </Button>
           </Form>
         </Modal>
 
         {/* ===== Modal: إلغاء حجز ===== */}
         <Modal
-          title="إلغاء الحجز"
+          title={
+            user?.role === "EMPLOYEE" ? "طلب   إلغاء الحجز" : "  إلغاء الحجز"
+          }
           open={openCancel}
           footer={null}
           onCancel={() => setOpenCancel(false)}
@@ -480,7 +546,9 @@ export default function BookingDayPage() {
               <Input.TextArea rows={4} />
             </Form.Item>
             <Button danger block htmlType="submit" loading={cancelLoading}>
-              تأكيد الإلغاء
+              {user?.role === "EMPLOYEE"
+                ? "طلب  تأكيد الإلغاء"
+                : " تأكيد الإلغاء"}
             </Button>
           </Form>
         </Modal>

@@ -18,6 +18,8 @@ model User {
   bookings        Booking[]       @relation("BookingCreatedBy")
   cancellations   BookingCancel[] @relation("CancelledBy")
   logs            AuditLog[]
+  bookingRequests BookingRequest[]
+  cancelRequests CancelRequest[]
 }
 
 model Hall {
@@ -27,6 +29,7 @@ model Hall {
 
   employees   HallEmployee[]
   bookings    Booking[]
+  bookingRequests BookingRequest[]
 }
 
 model HallEmployee {
@@ -71,6 +74,8 @@ model Booking {
 
   cancellation     BookingCancel?
 
+  cancelRequests CancelRequest[]
+
 }
 
 model BookingCancel {
@@ -102,12 +107,65 @@ model AuditLog {
   user        User @relation(fields: [userId], references: [id], onDelete: Cascade)
 }
 
+model BookingRequest {
+  id            String   @id @default(uuid())
+
+  hallId        String
+  hall          Hall     @relation(fields: [hallId], references: [id], onDelete: Cascade)
+
+  bookingDate   DateTime
+
+  groomName     String
+  brideName     String
+
+  customerName  String
+  phone         String?
+
+  depositAmount Float
+  totalAmount   Float
+
+  notes         String?
+
+  status        RequestStatus @default(PENDING)
+
+  createdAt     DateTime @default(now())
+
+  createdById   String
+  createdBy     User @relation(fields: [createdById], references: [id])
+}
+
+
+model CancelRequest {
+  id            String   @id @default(uuid())
+
+  bookingId     String
+  booking       Booking  @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+
+  refundAmount  Float
+
+  reason        String
+
+  status        RequestStatus @default(PENDING)
+
+  createdAt     DateTime @default(now())
+
+  createdById   String
+  createdBy     User     @relation(fields: [createdById], references: [id])
+}
+
 enum Role {
   SUPER_ADMIN
+  ADMIN
   EMPLOYEE
 }
 
 enum BookingStatus {
   ACTIVE
   CANCELLED
+}
+
+enum RequestStatus {
+  PENDING
+  APPROVED
+  REJECTED
 }
